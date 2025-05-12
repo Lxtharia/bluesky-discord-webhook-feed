@@ -1,4 +1,6 @@
 from datetime import datetime
+import logging
+import sys
 from atproto import Client, IdResolver
 from time import sleep
 
@@ -9,13 +11,30 @@ from dotenv import load_dotenv, find_dotenv
 
 load_dotenv(find_dotenv())
 
+# Setup Logging
+logger = logging.getLogger(__name__)
+stdout = logging.StreamHandler(stream=sys.stdout)
+stdout.setLevel(logging.INFO)
+logger.addHandler(stdout)
+logger.setLevel(logging.INFO)
+warning = logger.warning
+info = logger.info
+
 LAST_SENT_AT_FILENAME = "last_sent_at.txt"
 
 USERNAME = os.environ.get("USERNAME")
 PASSWORD = os.environ.get("PASSWORD")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
-TIMEOUT = 2
+if USERNAME == "": raise ValueError("Username is missing")
+if PASSWORD == "": raise ValueError("Password is missing")
+if WEBHOOK_URL == "": warning("Webhook Url is missing")
+
+'''How frequently we check for new posts, in minutes'''
+TIMEOUT = 5
+
+'''How many seconds there should be between discord posts'''
+DISCORD_TIMEOUT = 2
 
 
 class Post:
@@ -33,6 +52,7 @@ class Post:
 
 
 def update_last_sent(time: datetime):
+    info(f"Updating to {time.timestamp()}")
     with open(LAST_SENT_AT_FILENAME, 'w') as f:
         f.write(f"last_sent_at={time.timestamp()}")
 
@@ -45,8 +65,9 @@ def read_last_sent():
     return datetime.fromtimestamp(float(timestamp))
 
 
-def process_user_posts(client: Client, webhook: str | None, user_did: str):
+def fetch_new_user_posts(client: Client, user_did: str) -> list[Post]:
     next_page = None
+    posts: list[Post] = []
     while True:
         data = client.get_author_feed(
             actor=user_did,
@@ -57,37 +78,43 @@ def process_user_posts(client: Client, webhook: str | None, user_did: str):
         # For paging
         feed = data.feed
         next_page = data.cursor
+        info(f"Requesting next page with cursor {next_page}")
         last_sent_at = read_last_sent()
 
-        reached_end = False
-        for feedpost in reversed(feed):
-            post = Post(feedpost)
+        posts += map(lambda x: Post(x), feed)
 
-            # Skip already seen posts
-            if post.time.timestamp() <= last_sent_at.timestamp():
-                reached_end = True  # No need to paginate further
-                print(f"<Skipping post from @{post.time.timestamp()}>")
-                continue
-
-            if post_post(webhook, post):
-                update_last_sent(post.time)
-
-            sleep(TIMEOUT)
-
-        print(next_page)
-        if reached_end or next_page is None:
+        # Stop if the last post we collected is already older than since we last checked
+        # Or if we are at the end of the timeline ;)
+        if next_page is None or posts[-1].time.timestamp() < last_sent_at.timestamp():
             break
+        # Prevent being rate limited
+        sleep(0.5)
+
+    def keep_post(p: Post):
+        keep = p.time.timestamp() > last_sent_at.timestamp()
+        if not keep: print(f"<Skipping post from {p.time.isoformat()} @{p.time.timestamp()}>")
+        return keep
+
+    return list(filter(keep_post, posts))
+
+
+# This could just as well be part of fetch_new_user_posts
+def post_posts(posts: list[Post], webhook: str | None):
+    for post in reversed(posts):
+        if send_post_to_webhook(post, webhook):
+            update_last_sent(post.time)
+        sleep(DISCORD_TIMEOUT)
+
+
+def send_post_to_webhook(post: Post, webhook: str | None):
+    if webhook is None:
+        print(f"Post: {post}")
+    return True
 
 
 def did_resolver(username):
     resolver = IdResolver()
     return resolver.handle.resolve(username)
-
-
-def post_post(webhook: str | None, post: Post):
-    if webhook is None:
-        print(f"Post: {post}")
-        return True
 
 
 def main():
@@ -101,8 +128,9 @@ def main():
     else:
         mydid = client.me.did
         while True:
-            process_user_posts(client, WEBHOOK_URL, mydid)
-            sleep(60*5)
+            post_posts(fetch_new_user_posts(client, mydid), WEBHOOK_URL)
+            print(" . . . WAITING . . . ")
+            sleep(60 * TIMEOUT)
 
 
 if __name__ == "__main__":
