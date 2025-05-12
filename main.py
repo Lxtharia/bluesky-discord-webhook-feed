@@ -125,10 +125,16 @@ def send_post_to_webhook(post: Post, webhook: str | None):
                     "url": "https://bsky.app/profile/" + post.author_handle,
                     "icon_url": post.author_avatar,
                 },
-                "description": post.content,
+                # "description": post.content,
+                "fields": [
+                    {
+                        "name": post.content,
+                        "value": "",
+                    }
+                ],
                 "color": 1941746,
                 "footer": {
-                    "text": post.author_handle,
+                    "text": "@" + post.author_handle,
                 },
                 "timestamp": post.time.isoformat(),
             },
