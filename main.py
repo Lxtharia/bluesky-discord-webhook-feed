@@ -5,6 +5,7 @@ from atproto import Client, IdResolver
 from time import sleep
 
 import os
+import requests
 from atproto_client.models.app.bsky.feed.defs import FeedViewPost, PostView
 from atproto_client.models.app.bsky.feed.get_feed import Params
 from dotenv import load_dotenv, find_dotenv
@@ -39,7 +40,8 @@ DISCORD_TIMEOUT = 2
 
 class Post:
     def __init__(self, post: FeedViewPost) -> None:
-        self.author = post.post.author.handle
+        self.author = post.post.author
+        self.author_handle = post.post.author.handle
         self.author_display_name = post.post.author.display_name
         self.author_avatar = post.post.author.avatar
         self.content = post.post.record.text
@@ -47,12 +49,13 @@ class Post:
         self.time: datetime = datetime.fromisoformat(post.post.indexed_at)
 
     def __format__(self, format_spec: str, /) -> str:
-        return f"""<Post by '@{self.author}' at [{self.time.isoformat()}]:
-                '{self.content}' with {"No" if self.embeds is None else ""} embeds>"""
+        return f"""<Post by '@{self.author_handle}' at [{self.time.isoformat()}] \
+with {"no" if self.embeds is None else ""} embeds:
+    {self.content}>"""
 
 
 def update_last_sent(time: datetime):
-    info(f"Updating to {time.timestamp()}")
+    logger.debug(f"Updating to {time.timestamp()}")
     with open(LAST_SENT_AT_FILENAME, 'w') as f:
         f.write(f"last_sent_at={time.timestamp()}")
 
@@ -92,7 +95,7 @@ def fetch_new_user_posts(client: Client, user_did: str) -> list[Post]:
 
     def keep_post(p: Post):
         keep = p.time.timestamp() > last_sent_at.timestamp()
-        if not keep: print(f"<Skipping post from {p.time.isoformat()} @{p.time.timestamp()}>")
+        if not keep: info(f"Skipping post from {p.time.isoformat()} @{p.time.timestamp()}")
         return keep
 
     return list(filter(keep_post, posts))
@@ -108,8 +111,33 @@ def post_posts(posts: list[Post], webhook: str | None):
 
 def send_post_to_webhook(post: Post, webhook: str | None):
     if webhook is None:
-        print(f"Post: {post}")
-    return True
+        print(f"{post}")
+        return False
+    info(f"{post}")
+    webhook_data = {
+        "content": None,
+        "username": "Bluesky",
+        "avatar_url": "https://web-cdn.bsky.app/static/favicon.png",
+        "embeds": [
+            {
+                "author": {
+                    "name": post.author_display_name,
+                    "url": "https://bsky.app/profile/" + post.author_handle,
+                    "icon_url": post.author_avatar,
+                },
+                "description": post.content,
+                "color": 1941746,
+                "footer": {
+                    "text": post.author_handle,
+                },
+                "timestamp": post.time.isoformat(),
+            },
+        ]
+    }
+    res = requests.post(url=webhook, json=webhook_data)
+    if not res.ok:
+        warning(f"Sending webhook failed: {res.content}")
+    return res
 
 
 def did_resolver(username):
