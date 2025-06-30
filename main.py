@@ -134,41 +134,41 @@ def send_post_to_webhook(post: Post, webhook: str | None):
         return False
     info(f"{post}")
     webhook_data = {
-        "content": None,
+        "content": post.url,
         "username": "Bluesky",
         "avatar_url": "https://web-cdn.bsky.app/static/favicon.png",
-        "embeds": [
-            {
-                "title": f"New Post from {post.author_display_name}",
-                **optional("url", post.url),
-                "thumbnail": {
-                    **optional("url", post.author_avatar),
-                },
-                # "author": {
-                #     "name": post.author_display_name,
-                #     "url": "https://bsky.app/profile/" + post.author_handle,
-                #     "icon_url": post.author_avatar,
-                # },
-                # "description": post.content,
-                "fields": [
-                    {
-                        "name": post.author_display_name,
-                        "value": f"[@{post.author_handle}]({post.author_profile_url})",
-                    },
-                    {
-                        "name": post.content,
-                        "value": "",
-                    }
-                ],
-                "color": 1941746,
-                "footer": {
-                    "text": "bsky.app",
-                },
-                "timestamp": post.time.isoformat(),
-            },
-        ]
+        ### Custom embeds!
+        # "embeds": [
+        #     {
+        #         "title": f"New Post from {post.author_display_name}",
+        #         **optional("url", post.url),
+        #         # "thumbnail": {
+        #         #     **optional("url", post.author_avatar),
+        #         # },
+        #         "author": {
+        #             "name": f"{post.author_display_name} (@{post.author_handle})",
+        #             "url": "https://bsky.app/profile/" + post.author_handle,
+        #             "icon_url": post.author_avatar,
+        #         },
+        #         "description": post.content,
+        #         # "fields": [
+        #         #     {
+        #         #         "name": post.author_display_name,
+        #         #         "value": f"[@{post.author_handle}]({post.author_profile_url})",
+        #         #     },
+        #         #     {
+        #         #         "name": post.content,
+        #         #         "value": "",
+        #         #     }
+        #         # ],
+        #         "color": 1941746,
+        #         "footer": {
+        #             "text": "bsky.app",
+        #         },
+        #         "timestamp": post.time.isoformat(),
+        #     },
+        # ]
     }
-    print("[DEBUG]", webhook_data)
 
     res = requests.post(url=webhook, json=webhook_data)
     if not res.ok:
